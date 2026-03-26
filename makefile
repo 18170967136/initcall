@@ -48,8 +48,8 @@ $(BUILD_DIR):
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-# 编译 .cpp → build/*.o（依赖 auto_init.hpp 和 linenoise.h）
-$(BUILD_DIR)/%.o: %.cpp auto_init.hpp linenoise.h
+# 编译 .cpp → build/*.o（依赖 initcall.hpp 和 linenoise.h）
+$(BUILD_DIR)/%.o: %.cpp initcall.hpp linenoise.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # 编译 linenoise.c → build/linenoise.o

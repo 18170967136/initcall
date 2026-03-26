@@ -1,49 +1,49 @@
-// auto_init.hpp
+// initcall.hpp
 // ==========================================================================
-// autoreg —— C++ 自动初始化 & CLI 命令注册框架（Header-Only）
+// initcall —— C++ 自动初始化 & CLI 命令注册框架（Header-Only）
 //
 // 灵感来源于 RT-Thread 的 INIT_XXX_EXPORT 和 finsh/msh 机制。
 // 只需 #include 此文件即可使用全部功能，无需额外链接任何 .cpp。
 //
-// 所有类型和函数位于 namespace autoreg 中，避免命名冲突。
-// 宏名统一使用 AUTOREG_ 前缀。
+// 所有类型和函数位于 namespace initcall 中，避免命名冲突。
+// 宏命名沿用嵌入式惯例：INIT_EXPORT / MSH_CMD_EXPORT / INIT_MAIN。
 //
 // ======================== 模块自动初始化 ========================
 //
-//   #include "auto_init.hpp"
+//   #include "initcall.hpp"
 //
 //   void my_module_init() { /* 初始化逻辑 */ }
-//   AUTOREG_MODULE(my_module_init, "My Module", 10)
+//   INIT_EXPORT(my_module_init, "My Module", 10)
 //
 // ======================== CLI 命令注册 ==========================
 //
 //   void cmd_hello(int argc, const char* argv[]) {
 //       std::cout << "Hello!\n";
 //   }
-//   AUTOREG_COMMAND(cmd_hello, "hello", "打印问候语")
+//   MSH_CMD_EXPORT(cmd_hello, "hello", "打印问候语")
 //
 // ======================== 自动入口 ==============================
 //
 //   // main.cpp 中只需写：
-//   #include "auto_init.hpp"
-//   AUTOREG_MAIN()
+//   #include "initcall.hpp"
+//   INIT_MAIN()
 //
 //   // 效果：
-//   //   1) 所有 AUTOREG_MODULE 注册的模块在 main() 之前自动初始化
+//   //   1) 所有 INIT_EXPORT 注册的模块在 main() 之前自动初始化
 //   //   2) main() 自动进入交互式 CLI 命令行（支持 Tab 补全和历史记录）
 //
 // ==========================================================================
 //
 // 多线程安全性说明：
-//   所有 AUTOREG_MODULE / AUTOREG_COMMAND 在 main() 之前的静态初始化阶段
+//   所有 INIT_EXPORT / MSH_CMD_EXPORT 在 main() 之前的静态初始化阶段
 //   执行，此时只有一个线程（C++ 标准保证）。get_init_table() 和 get_cmd_table()
 //   使用函数局部 static 变量，C++11 保证其构造是线程安全的（Magic Statics）。
 //   因此，只要不在 main() 之后动态注册新模块/命令，无需加锁。
 //
 // ==========================================================================
 
-#ifndef AUTO_INIT_HPP
-#define AUTO_INIT_HPP
+#ifndef INITCALL_HPP
+#define INITCALL_HPP
 
 #include <vector>
 #include <string>
@@ -57,7 +57,7 @@ extern "C" {
 #include "linenoise.h"
 }
 
-namespace autoreg {
+namespace initcall {
 
 // **************************************************************************
 //  Part 1: 模块自动初始化
@@ -93,10 +93,10 @@ inline void do_auto_init() {
                   return a.priority < b.priority;
               });
 
-    std::cout << "[auto_init] Found " << table.size() << " registered modules\n";
+    std::cout << "[initcall] Found " << table.size() << " registered modules\n";
 
     for (const auto& entry : table) {
-        std::cout << "[auto_init] Executing: " << entry.name
+        std::cout << "[initcall] Executing: " << entry.name
                   << " (priority=" << entry.priority << ")\n";
         entry.func();
     }
@@ -167,7 +167,7 @@ inline void cmd_builtin_list(int, const char*[]) {
 
 // version —— 显示框架版本信息
 inline void cmd_builtin_version(int, const char*[]) {
-    std::cout << "autoreg framework v2.0\n";
+    std::cout << "initcall framework v2.0\n";
 }
 
 // 命令历史记录（linenoise C API 不直接暴露历史，内部维护）
@@ -281,34 +281,34 @@ inline void cli_loop(const char* prompt = "msh> ") {
     }
 }
 
-} // namespace autoreg
+} // namespace initcall
 
 // **************************************************************************
-//  宏定义（宏无法放入命名空间，统一使用 AUTOREG_ 前缀避免冲突）
+//  宏定义（沿用嵌入式惯例命名：INIT_EXPORT / MSH_CMD_EXPORT / INIT_MAIN）
 // **************************************************************************
 
 // --------------------------------------------------------------------------
-// 模块注册宏
+// 模块注册宏（类似 RT-Thread INIT_XXX_EXPORT）
 // --------------------------------------------------------------------------
 // 用法：在初始化函数定义的下方，写一行：
-//   AUTOREG_MODULE(函数名, "模块名", 优先级)
+//   INIT_EXPORT(函数名, "模块名", 优先级)
 //
 // 展开后为一个 static bool 变量，通过立即执行的 lambda 在程序启动时
 // 将模块信息 push 进注册表。
-#define AUTOREG_MODULE(func, name, prio) \
-    static bool __autoreg_mod_##func = []() { \
-        autoreg::get_init_table().push_back({func, name, prio}); \
+#define INIT_EXPORT(func, name, prio) \
+    static bool __initcall_##func = []() { \
+        initcall::get_init_table().push_back({func, name, prio}); \
         return true; \
     }();
 
 // --------------------------------------------------------------------------
-// 命令注册宏
+// 命令注册宏（类似 RT-Thread MSH_CMD_EXPORT）
 // --------------------------------------------------------------------------
 // 用法：在命令处理函数定义的下方，写一行：
-//   AUTOREG_COMMAND(函数名, "命令名", "帮助信息")
-#define AUTOREG_COMMAND(func, name, help) \
-    static bool __autoreg_cmd_##func = []() { \
-        autoreg::get_cmd_table().push_back({func, name, help}); \
+//   MSH_CMD_EXPORT(函数名, "命令名", "帮助信息")
+#define MSH_CMD_EXPORT(func, name, help) \
+    static bool __msh_cmd_##func = []() { \
+        initcall::get_cmd_table().push_back({func, name, help}); \
         return true; \
     }();
 
@@ -317,14 +317,14 @@ inline void cli_loop(const char* prompt = "msh> ") {
 // --------------------------------------------------------------------------
 // 展开为 int main()，自动在第一行调用 do_auto_init()，然后进入 cli_loop()。
 // 由于 C++ 标准保证所有全局/静态对象的动态初始化在 main() 之前完成，
-// 因此进入 main() 时所有 AUTOREG_MODULE / AUTOREG_COMMAND 已注册完毕。
+// 因此进入 main() 时所有 INIT_EXPORT / MSH_CMD_EXPORT 已注册完毕。
 // 用户无需手动调用 do_auto_init() 或 cli_loop()。
-#define AUTOREG_MAIN() \
+#define INIT_MAIN() \
     int main() { \
-        autoreg::do_auto_init(); \
+        initcall::do_auto_init(); \
         std::cout << "=== Initialization complete ===\n\n"; \
-        autoreg::cli_loop(); \
+        initcall::cli_loop(); \
         return 0; \
     }
 
-#endif // AUTO_INIT_HPP
+#endif // INITCALL_HPP

@@ -1,10 +1,10 @@
 #include <iostream>
-#include "auto_init.hpp"
+#include "initcall.hpp"
 
 void user_init() {
     std::cout << "  -> user_init initialized\n";
 }
-AUTOREG_MODULE(user_init, "user_init", 5)
+INIT_EXPORT(user_init, "user_init", 5)
 
 // ======================== CLI 命令注册示例 ==========================
 
@@ -16,4 +16,4 @@ void cmd_echo(int argc, const char* argv[]) {
     }
     std::cout << '\n';
 }
-AUTOREG_COMMAND(cmd_echo, "echo", "打印参数内容")
+MSH_CMD_EXPORT(cmd_echo, "echo", "打印参数内容")

@@ -2,15 +2,15 @@
 // ==========================================================================
 // 自动初始化 & CLI 命令行演示程序
 //
-// 使用 AUTOREG_MAIN() 宏，自动完成以下工作：
-//   1) 各模块在自己的 .cpp 中用 AUTOREG_MODULE 完成自注册
-//   2) 各模块在自己的 .cpp 中用 AUTOREG_COMMAND 注册 CLI 命令
-//   3) do_auto_init() 在 main() 之前自动执行（__attribute__((constructor))）
+// 使用 INIT_MAIN() 宏，自动完成以下工作：
+//   1) 各模块在自己的 .cpp 中用 INIT_EXPORT 完成自注册
+//   2) 各模块在自己的 .cpp 中用 MSH_CMD_EXPORT 注册 CLI 命令
+//   3) do_auto_init() 在 main() 开始时自动执行
 //   4) main() 自动进入 cli_loop() 交互式命令行（支持 Tab 补全和历史记录）
 //
 // 新增模块/命令时无需修改此文件。
 // ==========================================================================
 
-#include "auto_init.hpp"
+#include "initcall.hpp"
 
-AUTOREG_MAIN()
+INIT_MAIN()

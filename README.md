@@ -1,8 +1,8 @@
-# Auto Init —— C++ 自动初始化 & CLI 命令注册框架
+# initcall —— C++ 自动初始化 & CLI 命令注册框架
 
 > 类似 RT-Thread `INIT_XXX_EXPORT` + `finsh/msh` 的模块自注册 & 命令行机制
 >
-> **Header-Only 核心**：只需 `#include "auto_init.hpp"` 即可使用
+> **Header-Only 核心**：只需 `#include "initcall.hpp"` 即可使用
 > CLI 行编辑依赖 [antirez/linenoise](https://github.com/antirez/linenoise)（C 库，由 Makefile 自动下载编译）
 
 ## 一、这个项目是做什么的？
@@ -16,11 +16,11 @@
 ## 二、项目结构
 
 ```
-├── auto_init.hpp     # Header-Only 核心库（namespace autoreg，模块注册 + CLI + 执行逻辑）
-├── main.cpp          # 主程序入口：AUTOREG_MAIN() 宏自动生成 main()
-├── module1.cpp       # 模块 A：AUTOREG_MODULE 自注册示例
-├── module2.cpp       # 模块 B/C：AUTOREG_MODULE 示例（一个文件注册多个模块）
-├── user1.cpp         # 用户模块：AUTOREG_MODULE + AUTOREG_COMMAND 示例
+├── initcall.hpp      # Header-Only 核心库（namespace initcall，模块注册 + CLI + 执行逻辑）
+├── main.cpp          # 主程序入口：INIT_MAIN() 宏自动生成 main()
+├── module1.cpp       # 模块 A：INIT_EXPORT 自注册示例
+├── module2.cpp       # 模块 B/C：INIT_EXPORT 示例（一个文件注册多个模块）
+├── user1.cpp         # 用户模块：INIT_EXPORT + MSH_CMD_EXPORT 示例
 ├── linenoise.h       # antirez/linenoise 头文件（Makefile 自动 wget 下载）
 ├── linenoise.c       # antirez/linenoise 实现（Makefile 自动 wget 下载）
 ├── build/            # 编译输出目录（由 make 自动创建）
@@ -38,8 +38,8 @@
 ┌─────────────────────────────────────────────┐
 │ 静态初始化阶段（main 之前自动执行）            │
 │                                             │
-│  各模块 .cpp 中的 AUTOREG_MODULE 被执行           │
-│    → get_init_table().push_back(Module A, 30) │
+│  各模块 .cpp 中的 INIT_EXPORT 被执行            │
+│    → get_init_table().push_back(Module A, 20) │
 │    → get_init_table().push_back(Module B, 10) │
 │    → get_init_table().push_back(Module C, 20) │
 │    → get_init_table().push_back(user_init, 5) │
@@ -51,7 +51,7 @@ main() 开始执行
   ▼
 do_auto_init()
   │  1) 按 priority 排序 get_init_table()
-  │  2) 依次调用：user(5) → B(10) → C(20) → A(30)
+  │  2) 依次调用：user(5) → B(10) → A(20) → C(20)
   ▼
 主程序继续运行...
 ```
@@ -70,7 +70,7 @@ using init_func_t = void(*)();
 #### ② 结构体聚合初始化
 
 ```cpp
-get_init_table().push_back({module_a_init, "Module A", 30});
+get_init_table().push_back({module_a_init, "Module A", 20});
 ```
 
 花括号 `{}` 按字段顺序初始化 `init_entry` 结构体——依次是 `func`、`name`、`priority`。
@@ -78,7 +78,7 @@ get_init_table().push_back({module_a_init, "Module A", 30});
 #### ③ `static` 全局变量的初始化时机
 
 ```cpp
-static bool __autoreg_mod_xxx = /* 表达式 */;
+static bool __initcall_xxx = /* 表达式 */;
 ```
 
 文件作用域的 `static` 变量会在 **`main()` 执行之前**的「静态初始化阶段」被初始化。
@@ -87,7 +87,7 @@ static bool __autoreg_mod_xxx = /* 表达式 */;
 #### ④ Lambda 表达式 + 立即调用（IIFE）
 
 ```cpp
-static bool __autoreg_mod_xxx = []() {
+static bool __initcall_xxx = []() {
     // 注册代码
     return true;
 }();          // ← 注意这个 ()，表示立即调用
@@ -103,19 +103,19 @@ static bool __autoreg_mod_xxx = []() {
 #### ⑤ `##` 预处理器粘贴操作符
 
 ```cpp
-#define AUTOREG_MODULE(func, name, prio) \
-    static bool __autoreg_mod_##func = ...
+#define INIT_EXPORT(func, name, prio) \
+    static bool __initcall_##func = ...
 ```
 
-`##` 将 `__autoreg_mod_` 和 `func` 参数值拼接成一个标识符，如：
-- `func = module_a_init` → 变量名 `__autoreg_mod_module_a_init`
+`##` 将 `__initcall_` 和 `func` 参数值拼接成一个标识符，如：
+- `func = module_a_init` → 变量名 `__initcall_module_a_init`
 
 保证每次注册生成不同的变量名，避免重名。
 
 #### ⑥ 函数局部 `static` + `inline`（首次使用时构造）
 
 ```cpp
-// auto_init.h 中
+// initcall.hpp 中
 inline std::vector<init_entry>& get_init_table() {
     static std::vector<init_entry> table;  // 第一次调用时才构造
     return table;                          // 之后每次返回同一实例
@@ -125,7 +125,7 @@ inline std::vector<init_entry>& get_init_table() {
 **为什么不用 `extern` 全局变量？**
 
 C++ 不保证不同 `.cpp` 文件中全局变量的初始化顺序（称为 **SIOF**，Static Initialization Order Fiasco）。
-如果模块的 `AUTOREG_MODULE` 在 `init_table` 构造之前执行，会向未构造的 `vector` 写入数据——导致注册数量为 0 或崩溃。
+如果模块的 `INIT_EXPORT` 在 `init_table` 构造之前执行，会向未构造的 `vector` 写入数据——导致注册数量为 0 或崩溃。
 
 函数内的 `static` 局部变量由 C++11 保证在**第一次调用时构造**，彻底避免了顺序问题。
 `inline` 关键字允许该函数定义在头文件中被多个 `.cpp` 包含而不产生重复定义错误。
@@ -142,19 +142,19 @@ std::sort(table.begin(), table.end(),
 
 按 `priority` 升序排列。`const auto& entry` 中的 `&` 是引用，避免拷贝。
 
-### 3.3 AUTOREG_MODULE 宏展开示例
+### 3.3 INIT_EXPORT 宏展开示例
 
 源码：
 ```cpp
 void module_a_init() { /* ... */ }
-AUTOREG_MODULE(module_a_init, "Module A", 30)
+INIT_EXPORT(module_a_init, "Module A", 20)
 ```
 
 预处理器展开后：
 ```cpp
 void module_a_init() { /* ... */ }
-static bool __autoreg_mod_module_a_init = []() {
-    autoreg::get_init_table().push_back({module_a_init, "Module A", 30});
+static bool __initcall_module_a_init = []() {
+    initcall::get_init_table().push_back({module_a_init, "Module A", 20});
     return true;
 }();
 ```
@@ -168,12 +168,12 @@ static bool __autoreg_mod_module_a_init = []() {
 ```cpp
 // module3.cpp
 #include <iostream>
-#include "auto_init.hpp"
+#include "initcall.hpp"
 
 void module_d_init() {
     std::cout << "  -> Module D initialized\n";
 }
-AUTOREG_MODULE(module_d_init, "Module D", 15)
+INIT_EXPORT(module_d_init, "Module D", 15)
 ```
 
 然后 `make clean && make && ./build/auto_init_demo`，Module D 会自动出现在输出中。
@@ -184,15 +184,15 @@ AUTOREG_MODULE(module_d_init, "Module D", 15)
 
 ```bash
 $ make && ./build/auto_init_demo
-[auto_init] Found 4 registered modules
-[auto_init] Executing: user_init (priority=5)
+[initcall] Found 4 registered modules
+[initcall] Executing: user_init (priority=5)
   -> user_init initialized
-[auto_init] Executing: Module B (priority=10)
+[initcall] Executing: Module B (priority=10)
   -> Module B initialized
-[auto_init] Executing: Module C (priority=20)
-  -> Module C initialized
-[auto_init] Executing: Module A (priority=30)
+[initcall] Executing: Module A (priority=20)
   -> Module A initialized
+[initcall] Executing: Module C (priority=20)
+  -> Module C initialized
 === Initialization complete ===
 
 msh> help
@@ -216,43 +216,43 @@ msh> exit
 | 特性 | RT-Thread | 本项目 |
 |------|-----------|--------|
 | 注册位置 | 函数下方一行宏 | 函数下方一行宏（相同） |
-| 宏名称 | `INIT_BOARD_EXPORT(fn)` 等 | `AUTOREG_MODULE(fn, name, prio)` |
+| 宏名称 | `INIT_BOARD_EXPORT(fn)` 等 | `INIT_EXPORT(fn, name, prio)` |
 | 优先级 | 由宏类型决定（board/device/...） | 由数字参数指定 |
 | 底层机制 | 链接器 section + 函数指针数组 | `static` 变量 + lambda + `std::vector` |
 | 存储方式 | ELF section 中的裸指针数组 | 堆上的 `std::vector` |
-| CLI 命令 | finsh/msh 组件 | `AUTOREG_COMMAND` 宏 + `cli_loop()` |
+| CLI 命令 | finsh/msh 组件 | `MSH_CMD_EXPORT` 宏 + `cli_loop()` |
 | 适用场景 | 裸机/RTOS（无 C++ 运行时） | 有 C++ 标准库的环境 |
 
 ## 七、CLI 命令注册
 
 ### 7.1 注册一个命令
 
-在任意 `.cpp` 文件中，定义处理函数并用 `AUTOREG_COMMAND` 宏注册：
+在任意 `.cpp` 文件中，定义处理函数并用 `MSH_CMD_EXPORT` 宏注册：
 
 ```cpp
-#include "auto_init.hpp"
+#include "initcall.hpp"
 
 void cmd_reboot(int argc, const char* argv[]) {
     std::cout << "Rebooting...\n";
 }
-AUTOREG_COMMAND(cmd_reboot, "reboot", "重启系统")
+MSH_CMD_EXPORT(cmd_reboot, "reboot", "重启系统")
 ```
 
 - **handler 签名**：`void(int argc, const char* argv[])`，其中 `argv[0]` 是命令名本身
-- **注册宏**：`AUTOREG_COMMAND(函数名, "命令名", "帮助信息")`
+- **注册宏**：`MSH_CMD_EXPORT(函数名, "命令名", "帮助信息")`
 - 编译后自动生效，无需修改其他文件
 
 ### 7.2 宏展开示例
 
 ```cpp
 void cmd_reboot(int argc, const char* argv[]) { /* ... */ }
-AUTOREG_COMMAND(cmd_reboot, "reboot", "重启系统")
+MSH_CMD_EXPORT(cmd_reboot, "reboot", "重启系统")
 ```
 
 展开为：
 ```cpp
-static bool __autoreg_cmd_cmd_reboot = []() {
-    autoreg::get_cmd_table().push_back({cmd_reboot, "reboot", "重启系统"});
+static bool __msh_cmd_cmd_reboot = []() {
+    initcall::get_cmd_table().push_back({cmd_reboot, "reboot", "重启系统"});
     return true;
 }();
 ```
@@ -265,34 +265,34 @@ static bool __autoreg_cmd_cmd_reboot = []() {
 | `clear` | 清屏 |
 | `list` | 列出所有已注册的初始化模块及优先级 |
 | `version` | 显示框架版本信息 |
-| `history` | 显示历史命令（仅 linenoise 模式） |
+| `history` | 显示历史命令 |
 | `exit` / `quit` | 退出命令行循环 |
 
-### 7.4 使用 AUTOREG_MAIN() 自动入口
+### 7.4 使用 INIT_MAIN() 自动入口
 
-推荐在 `main.cpp` 中使用 `AUTOREG_MAIN()` 宏，自动完成初始化和 CLI 启动：
+推荐在 `main.cpp` 中使用 `INIT_MAIN()` 宏，自动完成初始化和 CLI 启动：
 
 ```cpp
-#include "auto_init.hpp"
-AUTOREG_MAIN()
+#include "initcall.hpp"
+INIT_MAIN()
 ```
 
 等价于手动写：
 
 ```cpp
-#include "auto_init.hpp"
+#include "initcall.hpp"
 
 int main() {
-    autoreg::do_auto_init();
+    initcall::do_auto_init();
     std::cout << "=== Initialization complete ===\n\n";
-    autoreg::cli_loop();
+    initcall::cli_loop();
     return 0;
 }
 ```
 
 也可以直接执行单条命令而不进入循环：
 ```cpp
-autoreg::cli_execute("echo hello world");
+initcall::cli_execute("echo hello world");
 ```
 
 ## 八、多线程安全性
@@ -302,4 +302,4 @@ autoreg::cli_execute("echo hello world");
 | 静态初始化（main 前） | 安全 | C++ 标准保证此时只有一个线程 |
 | `get_init_table()` 首次构造 | 安全 | C++11 Magic Statics 保证线程安全 |
 | `do_auto_init()` / `cli_loop()` | 安全 | 在 main 中单线程调用 |
-| main 后动态 AUTOREG_* | **不安全** | 如需在运行时动态注册，须自行加锁 |
+| main 后动态 INIT_EXPORT | **不安全** | 如需在运行时动态注册，须自行加锁 |
