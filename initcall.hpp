@@ -13,14 +13,20 @@
 //   #include "initcall.hpp"
 //
 //   void my_module_init() { /* 初始化逻辑 */ }
-//   INIT_EXPORT(my_module_init, "My Module", 10)
+//   INIT_EXPORT(my_module_init, "My Module", INIT_LEVEL_COMPONENT)
+//
+//   // 也可以用 RT-Thread 风格的快捷宏（自动以函数名作为模块名）：
+//   INIT_COMPONENT_EXPORT(my_module_init)
 //
 // ======================== CLI 命令注册 ==========================
 //
 //   void cmd_hello(int argc, const char* argv[]) {
 //       std::cout << "Hello!\n";
 //   }
-//   MSH_CMD_EXPORT(cmd_hello, "hello", "打印问候语")
+//   MSH_CMD_EXPORT(cmd_hello, "打印问候语")
+//
+//   // 当命令名与函数名不同时，使用 ALIAS 版本：
+//   MSH_CMD_EXPORT_ALIAS(cmd_hello, "hello", "打印问候语")
 //
 // ======================== 用户入口（main.cpp）====================
 //
@@ -66,6 +72,19 @@ namespace initcall {
 // **************************************************************************
 //  Part 1: 模块自动初始化
 // **************************************************************************
+
+// --------------------------------------------------------------------------
+// 初始化优先级等级（数值越小越先执行）
+// 等级之间预留间隔，用户可用中间值实现更细粒度控制。
+// --------------------------------------------------------------------------
+enum init_level : int {
+    INIT_LEVEL_BOARD     = 100,   // 板级/硬件初始化（最先执行）
+    INIT_LEVEL_PREV      = 200,   // 预初始化（早期依赖项）
+    INIT_LEVEL_DEVICE    = 300,   // 设备/驱动初始化
+    INIT_LEVEL_COMPONENT = 400,   // 组件初始化
+    INIT_LEVEL_ENV       = 500,   // 环境/配置初始化
+    INIT_LEVEL_APP       = 600,   // 应用级初始化（最后执行）
+};
 
 // 初始化函数指针类型
 using init_func_t = void(*)();
@@ -311,11 +330,24 @@ inline void cli_loop(const char* prompt = "msh> ") {
 // 命令注册宏（类似 RT-Thread MSH_CMD_EXPORT）
 // --------------------------------------------------------------------------
 // 用法：在命令处理函数定义的下方，写一行：
-//   MSH_CMD_EXPORT(函数名, "命令名", "帮助信息")
-#define MSH_CMD_EXPORT(func, name, help) \
+//   MSH_CMD_EXPORT_ALIAS(函数名, "命令名", "帮助信息")  ← 命令名自定义
+//   MSH_CMD_EXPORT(函数名, "帮助信息")          ← 命令名 = 函数名
+#define MSH_CMD_EXPORT_ALIAS(func, name, help) \
     static bool __msh_cmd_##func = []() { \
         initcall::get_cmd_table().push_back({func, name, help}); \
         return true; \
     }();
+#define MSH_CMD_EXPORT(func, help)   MSH_CMD_EXPORT_ALIAS(func, #func, help)
+// --------------------------------------------------------------------------
+// RT-Thread 风格快捷宏 —— 免去手写优先级和模块名
+// --------------------------------------------------------------------------
+// 用法：INIT_BOARD_EXPORT(func)  等价于  INIT_EXPORT(func, "func", INIT_LEVEL_BOARD)
+// 模块名自动使用函数名（通过宏字符串化 #func）
+#define INIT_BOARD_EXPORT(func)      INIT_EXPORT(func, #func, initcall::INIT_LEVEL_BOARD)
+#define INIT_PREV_EXPORT(func)       INIT_EXPORT(func, #func, initcall::INIT_LEVEL_PREV)
+#define INIT_DEVICE_EXPORT(func)     INIT_EXPORT(func, #func, initcall::INIT_LEVEL_DEVICE)
+#define INIT_COMPONENT_EXPORT(func)  INIT_EXPORT(func, #func, initcall::INIT_LEVEL_COMPONENT)
+#define INIT_ENV_EXPORT(func)        INIT_EXPORT(func, #func, initcall::INIT_LEVEL_ENV)
+#define INIT_APP_EXPORT(func)        INIT_EXPORT(func, #func, initcall::INIT_LEVEL_APP)
 
 #endif // INITCALL_HPP

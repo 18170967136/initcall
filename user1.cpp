@@ -4,7 +4,7 @@
 void user_init() {
     std::cout << "  -> user_init initialized\n";
 }
-INIT_EXPORT(user_init, "user_init", 5)
+INIT_BOARD_EXPORT(user_init)
 
 // ======================== CLI 命令注册示例 ==========================
 
@@ -16,4 +16,4 @@ void cmd_echo(int argc, const char* argv[]) {
     }
     std::cout << '\n';
 }
-MSH_CMD_EXPORT(cmd_echo, "echo", "打印参数内容")
+MSH_CMD_EXPORT(cmd_echo, "打印参数内容")

@@ -16,5 +16,5 @@
 void module_a_init() {
     std::cout << "  -> Module A initialized\n";
 }
-// ↓ 注册：优先级 20
-INIT_EXPORT(module_a_init, "Module A", 20)
+// ↓ 注册：组件级初始化
+INIT_COMPONENT_EXPORT(module_a_init)
