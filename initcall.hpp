@@ -45,6 +45,10 @@
 #ifndef INITCALL_HPP
 #define INITCALL_HPP
 
+#define INITCALL_VERSION  "1.0.0"
+#define INITCALL_AUTHOR   "zeal"
+#define INITCALL_DATE     "2026-03-26"
+
 #include <vector>
 #include <string>
 #include <iostream>
@@ -167,7 +171,9 @@ inline void cmd_builtin_list(int, const char*[]) {
 
 // version —— 显示框架版本信息
 inline void cmd_builtin_version(int, const char*[]) {
-    std::cout << "initcall framework v2.0\n";
+    std::cout << "initcall framework v" INITCALL_VERSION
+                 "  by " INITCALL_AUTHOR
+                 "  (" INITCALL_DATE ")\n";
 }
 
 // 命令历史记录（linenoise C API 不直接暴露历史，内部维护）
