@@ -1,59 +1,28 @@
 // main.cpp
 // ==========================================================================
-// 自动初始化（Auto Init）演示程序
+// 自动初始化 & CLI 命令行演示程序
 //
-// 核心思路（类似 RT-Thread 的 INIT_XXX_EXPORT 机制）：
-//   每个模块在自己的 .cpp 文件中，于初始化函数定义的下方，
-//   直接使用 REGISTER_MODULE 宏完成自注册。
-//   程序启动时（main 之前），各模块的注册代码自动执行，
-//   将自己的信息写入全局 init_table。
-//   main() 中调用 do_auto_init()，按优先级顺序依次执行所有模块。
+// 核心思路（类似 RT-Thread 的 INIT_XXX_EXPORT + finsh/msh）：
+//   1) 各模块在自己的 .cpp 中用 REGISTER_MODULE 完成自注册
+//   2) 各模块在自己的 .cpp 中用 REGISTER_COMMAND 注册 CLI 命令
+//   3) main() 中调用 do_auto_init() 执行所有模块初始化
+//   4) main() 中调用 cli_loop() 进入交互式命令行
 //
-// 好处：新增模块时只需在新 .cpp 中写函数 + 一行宏，无需修改 main.cpp。
+// 新增模块/命令时无需修改此文件。
 // ==========================================================================
 
-#include <iostream>
-#include <algorithm>
-#include "auto_init.h"   // 引入注册框架（类型定义 + 宏 + get_init_table()）
+#include "auto_init.hpp"
 
-// --------------------------------------------------------------------------
-// 全局注册表的定义（唯一实例）
-// --------------------------------------------------------------------------
-// 已移至 auto_init.h 的 get_init_table() 函数内部（函数局部 static），
-// 通过「首次使用时构造」彻底避免跨文件静态初始化顺序问题。
-// --------------------------------------------------------------------------
-
-// --------------------------------------------------------------------------
-// 执行所有已注册模块的初始化
-// --------------------------------------------------------------------------
-void do_auto_init() {
-    auto& table = get_init_table();  // 获取注册表（保证已构造）
-
-    std::sort(table.begin(), table.end(),
-              [](const init_entry& a, const init_entry& b) {
-                  return a.priority < b.priority;
-              });
-
-    std::cout << "Found " << table.size() << " registered modules\n";
-
-    for (const auto& entry : table) {
-        std::cout << "Executing: " << entry.name
-                  << " (priority=" << entry.priority << ")\n";
-        // 通过函数指针调用对应模块的初始化函数
-        entry.func();
-    }
-}
-
-// --------------------------------------------------------------------------
-// 主函数
-// --------------------------------------------------------------------------
 int main() {
-    // 程序运行到这里时，init_table 已经被上面的 REGISTER_MODULE 填充完毕了
     std::cout << "=== Auto Initialization Demo ===\n";
 
-    // 排序并依次调用所有注册的初始化函数
+    // 按优先级执行所有已注册的初始化函数
     do_auto_init();
 
-    std::cout << "=== Main continues... ===\n";
+    std::cout << "=== Initialization complete ===\n\n";
+
+    // 进入交互式命令行（输入 help 查看命令列表，输入 exit 退出）
+    cli_loop();
+
     return 0;
 }

@@ -5,7 +5,7 @@
 // ==========================================================================
 
 #include <iostream>
-#include "auto_init.h"   // 引入注册框架
+#include "auto_init.hpp"
 
 // Module B 的初始化函数
 void module_b_init() {
@@ -20,3 +20,15 @@ void module_c_init() {
 }
 // ↓ 注册：优先级 20（中间执行）
 REGISTER_MODULE(module_c_init, "Module C", 20)
+
+// ======================== CLI 命令注册示例 ==========================
+
+// "list" 命令：列出所有已注册的初始化模块
+void cmd_list(int, const char*[]) {
+    auto& table = get_init_table();
+    std::cout << "Registered modules (" << table.size() << "):\n";
+    for (const auto& entry : table) {
+        std::cout << "  [" << entry.priority << "] " << entry.name << "\n";
+    }
+}
+REGISTER_COMMAND(cmd_list, "list", "列出所有已注册的初始化模块")

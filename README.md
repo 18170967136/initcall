@@ -1,23 +1,26 @@
-# Auto Init Demo —— C++ 自动初始化框架
+# Auto Init —— C++ 自动初始化 & CLI 命令注册框架
 
-> 类似 RT-Thread `INIT_XXX_EXPORT` 的模块自注册机制演示
+> 类似 RT-Thread `INIT_XXX_EXPORT` + `finsh/msh` 的模块自注册 & 命令行机制
+>
+> **Header-Only**：只需 `#include "auto_init.hpp"` 即可使用，无需额外链接 .cpp 文件
 
 ## 一、这个项目是做什么的？
 
 在嵌入式系统（如 RT-Thread）中，各模块可以通过一行宏在自己的源文件中完成注册，
 程序启动时自动按优先级调用所有已注册模块的初始化函数——**无需手动维护一个集中的调用列表**。
 
-本项目用纯 C++ 实现了同样的机制。
+本项目用纯 C++ 实现了同样的机制，同时提供了 **CLI 命令注册**功能（类似 RT-Thread finsh/msh），
+可以在各模块中用一行宏注册终端命令，程序运行后进入交互式命令行。
 
 ## 二、项目结构
 
 ```
-├── auto_init.h       # 公共头文件：类型定义 + 注册宏 + get_init_table()
-├── main.cpp          # 主程序：do_auto_init() 和 main()
-├── module1.cpp       # 模块 A：函数定义 + REGISTER_MODULE（自注册）
-├── module2.cpp       # 模块 B/C：函数定义 + REGISTER_MODULE（自注册）
-├── user1.cpp         # 用户模块：函数定义 + REGISTER_MODULE（自注册）
-├── build/            # 编译输出目录（.o 文件 + 可执行文件，由 make 自动创建）
+├── auto_init.hpp     # Header-Only 库（模块注册 + CLI 命令注册 + 执行逻辑）
+├── main.cpp          # 主程序：调用 do_auto_init() + cli_loop()
+├── module1.cpp       # 模块 A：REGISTER_MODULE 自注册
+├── module2.cpp       # 模块 B/C：REGISTER_MODULE + REGISTER_COMMAND 示例
+├── user1.cpp         # 用户模块：REGISTER_MODULE + REGISTER_COMMAND 示例
+├── build/            # 编译输出目录（由 make 自动创建）
 └── makefile          # 构建脚本（自动扫描所有 .cpp/.c 文件）
 ```
 
@@ -162,7 +165,7 @@ static bool __reg_module_a_init = []() {
 ```cpp
 // module3.cpp
 #include <iostream>
-#include "auto_init.h"
+#include "auto_init.hpp"
 
 void module_d_init() {
     std::cout << "  -> Module D initialized\n";
@@ -179,16 +182,26 @@ REGISTER_MODULE(module_d_init, "Module D", 15)
 ```bash
 $ make && ./build/auto_init_demo
 === Auto Initialization Demo ===
-Found 4 registered modules
-Executing: user_init (priority=5)
+[auto_init] Found 4 registered modules
+[auto_init] Executing: user_init (priority=5)
   -> user_init initialized
-Executing: Module B (priority=10)
+[auto_init] Executing: Module B (priority=10)
   -> Module B initialized
-Executing: Module C (priority=20)
+[auto_init] Executing: Module C (priority=20)
   -> Module C initialized
-Executing: Module A (priority=30)
+[auto_init] Executing: Module A (priority=30)
   -> Module A initialized
-=== Main continues... ===
+=== Initialization complete ===
+
+msh> help
+Available commands:
+  help            显示所有可用命令
+  list            列出所有已注册的初始化模块
+  echo            打印参数内容
+  version         显示版本信息
+msh> echo hello world
+hello world
+msh> exit
 ```
 
 ## 六、与 RT-Thread 的对比
@@ -200,4 +213,74 @@ Executing: Module A (priority=30)
 | 优先级 | 由宏类型决定（board/device/...） | 由数字参数指定 |
 | 底层机制 | 链接器 section + 函数指针数组 | `static` 变量 + lambda + `std::vector` |
 | 存储方式 | ELF section 中的裸指针数组 | 堆上的 `std::vector` |
+| CLI 命令 | finsh/msh 组件 | `REGISTER_COMMAND` 宏 + `cli_loop()` |
 | 适用场景 | 裸机/RTOS（无 C++ 运行时） | 有 C++ 标准库的环境 |
+
+## 七、CLI 命令注册
+
+### 7.1 注册一个命令
+
+在任意 `.cpp` 文件中，定义处理函数并用 `REGISTER_COMMAND` 宏注册：
+
+```cpp
+#include "auto_init.hpp"
+
+void cmd_reboot(int argc, const char* argv[]) {
+    std::cout << "Rebooting...\n";
+}
+REGISTER_COMMAND(cmd_reboot, "reboot", "重启系统")
+```
+
+- **handler 签名**：`void(int argc, const char* argv[])`，其中 `argv[0]` 是命令名本身
+- **注册宏**：`REGISTER_COMMAND(函数名, "命令名", "帮助信息")`
+- 编译后自动生效，无需修改其他文件
+
+### 7.2 宏展开示例
+
+```cpp
+void cmd_reboot(int argc, const char* argv[]) { /* ... */ }
+REGISTER_COMMAND(cmd_reboot, "reboot", "重启系统")
+```
+
+展开为：
+```cpp
+static bool __reg_cmd_cmd_reboot = []() {
+    get_cmd_table().push_back({cmd_reboot, "reboot", "重启系统"});
+    return true;
+}();
+```
+
+### 7.3 内置命令
+
+| 命令 | 说明 |
+|------|------|
+| `help` | 列出所有已注册的命令及帮助信息 |
+| `exit` / `quit` | 退出命令行循环 |
+
+### 7.4 在 main 中启动命令行
+
+```cpp
+#include "auto_init.hpp"
+
+int main() {
+    do_auto_init();  // 模块初始化
+    cli_loop();      // 进入交互式命令行（提示符 "msh> "）
+    // 或自定义提示符：
+    // cli_loop("myapp> ");
+    return 0;
+}
+```
+
+也可以直接执行单条命令而不进入循环：
+```cpp
+cli_execute("echo hello world");
+```
+
+## 八、多线程安全性
+
+| 阶段 | 是否安全 | 说明 |
+|------|----------|------|
+| 静态初始化（main 前） | 安全 | C++ 标准保证此时只有一个线程 |
+| `get_init_table()` 首次构造 | 安全 | C++11 Magic Statics 保证线程安全 |
+| `do_auto_init()` / `cli_loop()` | 安全 | 在 main 中单线程调用 |
+| main 后动态 REGISTER_* | **不安全** | 如需在运行时动态注册，须自行加锁 |
