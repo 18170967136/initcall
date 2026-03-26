@@ -6,7 +6,7 @@
 // 只需 #include 此文件即可使用全部功能，无需额外链接任何 .cpp。
 //
 // 所有类型和函数位于 namespace initcall 中，避免命名冲突。
-// 宏命名沿用嵌入式惯例：INIT_EXPORT / MSH_CMD_EXPORT / INIT_MAIN。
+// 宏命名沿用嵌入式惯例：INIT_EXPORT / MSH_CMD_EXPORT。
 //
 // ======================== 模块自动初始化 ========================
 //
@@ -22,15 +22,15 @@
 //   }
 //   MSH_CMD_EXPORT(cmd_hello, "hello", "打印问候语")
 //
-// ======================== 自动入口 ==============================
+// ======================== 用户入口（main.cpp）====================
 //
-//   // main.cpp 中只需写：
 //   #include "initcall.hpp"
-//   INIT_MAIN()
 //
-//   // 效果：
-//   //   1) 所有 INIT_EXPORT 注册的模块在 main() 之前自动初始化
-//   //   2) main() 自动进入交互式 CLI 命令行（支持 Tab 补全和历史记录）
+//   int main() {
+//       initcall::do_auto_init();   // 按优先级执行所有已注册模块
+//       initcall::cli_loop();       // 可选：进入交互式 CLI
+//       return 0;
+//   }
 //
 // ==========================================================================
 //
@@ -290,7 +290,7 @@ inline void cli_loop(const char* prompt = "msh> ") {
 } // namespace initcall
 
 // **************************************************************************
-//  宏定义（沿用嵌入式惯例命名：INIT_EXPORT / MSH_CMD_EXPORT / INIT_MAIN）
+//  宏定义（沿用嵌入式惯例命名：INIT_EXPORT / MSH_CMD_EXPORT）
 // **************************************************************************
 
 // --------------------------------------------------------------------------
@@ -317,20 +317,5 @@ inline void cli_loop(const char* prompt = "msh> ") {
         initcall::get_cmd_table().push_back({func, name, help}); \
         return true; \
     }();
-
-// --------------------------------------------------------------------------
-// 自动入口宏 —— 在一个 .cpp 文件中使用（通常是 main.cpp）
-// --------------------------------------------------------------------------
-// 展开为 int main()，自动在第一行调用 do_auto_init()，然后进入 cli_loop()。
-// 由于 C++ 标准保证所有全局/静态对象的动态初始化在 main() 之前完成，
-// 因此进入 main() 时所有 INIT_EXPORT / MSH_CMD_EXPORT 已注册完毕。
-// 用户无需手动调用 do_auto_init() 或 cli_loop()。
-#define INIT_MAIN() \
-    int main() { \
-        initcall::do_auto_init(); \
-        std::cout << "=== Initialization complete ===\n\n"; \
-        initcall::cli_loop(); \
-        return 0; \
-    }
 
 #endif // INITCALL_HPP
