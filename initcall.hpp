@@ -13,7 +13,7 @@
 //   #include "initcall.hpp"
 //
 //   void my_module_init() { /* 初始化逻辑 */ }
-//   INIT_EXPORT(my_module_init, "My Module", initcall::init_level::COMPONENT)
+//   INIT_EXPORT(my_module_init, "My Module", initcall::InitLevel::kComponent)
 //
 //   // 也可以用 RT-Thread 风格的快捷宏（自动以函数名作为模块名）：
 //   INIT_COMPONENT_EXPORT(my_module_init)
@@ -48,8 +48,8 @@
 //
 // ==========================================================================
 
-#ifndef INITCALL_HPP
-#define INITCALL_HPP
+#ifndef __INITCALL_HPP__
+#define __INITCALL_HPP__
 
 #define INITCALL_VERSION  "1.0.1"
 #define INITCALL_AUTHOR   "zeal"
@@ -76,48 +76,56 @@ namespace initcall {
 // 初始化优先级等级（数值越小越先执行）
 // 等级之间预留间隔，用户可用中间值实现更细粒度控制。
 // --------------------------------------------------------------------------
-enum class init_level : int {
-    BOARD     = 100,   // 板级/硬件初始化（最先执行）
-    PREV      = 200,   // 预初始化（早期依赖项）
-    DEVICE    = 300,   // 设备/驱动初始化
-    COMPONENT = 400,   // 组件初始化
-    ENV       = 500,   // 环境/配置初始化
-    APP       = 600,   // 应用级初始化（最后执行）
+enum class InitLevel : int
+{
+    kBoard     = 100,   // 板级/硬件初始化（最先执行）
+    kPrev      = 200,   // 预初始化（早期依赖项）
+    kDevice    = 300,   // 设备/驱动初始化
+    kComponent = 400,   // 组件初始化
+    kEnv       = 500,   // 环境/配置初始化
+    kApp       = 600,   // 应用级初始化（最后执行）
 };
 
 // 初始化函数指针类型
 using init_func_t = void(*)();
 
 // 模块描述符
-struct init_entry {
+struct InitEntry
+{
     init_func_t func;      // 指向模块初始化函数的指针
     const char* name;      // 模块名称（用于日志输出）
     int         priority;  // 优先级，数值越小越先执行
 };
 
 // 全局注册表（首次使用时构造，避免静态初始化顺序问题）
-inline std::vector<init_entry>& get_init_table() {
-    static std::vector<init_entry> table;
+inline std::vector<InitEntry>& get_init_table()
+{
+    static std::vector<InitEntry> table;
     return table;
 }
 
 // 执行所有已注册模块的初始化（按优先级升序）
 // 内置一次性守卫，防止被多次调用
-inline void do_auto_init() {
+inline void do_auto_init()
+{
     static bool done = false;
-    if (done) return;
+    if (done)
+    {
+        return;
+    }
     done = true;
 
     auto& table = get_init_table();
 
     std::sort(table.begin(), table.end(),
-              [](const init_entry& a, const init_entry& b) {
+              [](const InitEntry& a, const InitEntry& b) {
                   return a.priority < b.priority;
               });
 
     std::cout << "[initcall] Found " << table.size() << " registered modules\n";
 
-    for (const auto& entry : table) {
+    for (const auto& entry : table)
+    {
         std::cout << "[initcall] Executing: " << entry.name
                   << " (priority=" << entry.priority << ")\n";
         entry.func();
@@ -132,31 +140,41 @@ inline void do_auto_init() {
 using cmd_handler_t = void(*)(int argc, const char* argv[]);
 
 // 命令描述符
-struct cmd_entry {
+struct CmdEntry
+{
     cmd_handler_t handler; // 命令处理函数
     const char*   name;    // 命令名（用户在终端输入的字符串）
     const char*   help;    // 帮助信息
 };
 
 // 命令注册表（首次使用时构造）
-inline std::vector<cmd_entry>& get_cmd_table() {
-    static std::vector<cmd_entry> table;
+inline std::vector<CmdEntry>& get_cmd_table()
+{
+    static std::vector<CmdEntry> table;
     return table;
 }
 
 // 将输入字符串按空白拆分，返回各 token 的独立副本（所有权归调用方，无悬挂指针风险）
-inline std::vector<std::string> cli_split(const std::string& line) {
+inline std::vector<std::string> cli_split(const std::string& line)
+{
     std::vector<std::string> tokens;
     const std::string delim(" \t\r\n");
     std::string::size_type pos = 0;
 
-    while (pos < line.size()) {
+    while (pos < line.size())
+    {
         // 跳过分隔符
         pos = line.find_first_not_of(delim, pos);
-        if (pos == std::string::npos) break;
+        if (pos == std::string::npos)
+        {
+            break;
+        }
         // 找到下一个分隔符
         auto end = line.find_first_of(delim, pos);
-        if (end == std::string::npos) end = line.size();
+        if (end == std::string::npos)
+        {
+            end = line.size();
+        }
         tokens.push_back(line.substr(pos, end - pos));
         pos = end;
     }
@@ -166,16 +184,19 @@ inline std::vector<std::string> cli_split(const std::string& line) {
 // ======================== 内置命令 ========================
 
 // 前置声明（cmd_builtin_help 需要访问含内置命令的完整表）
-inline std::vector<cmd_entry>& get_cmd_table_with_builtins();
+inline std::vector<CmdEntry>& get_cmd_table_with_builtins();
 
 // help —— 显示所有可用命令（含内置命令）
-inline void cmd_builtin_help(int, const char*[]) {
+inline void cmd_builtin_help(int, const char*[])
+{
     auto& table = get_cmd_table_with_builtins();
     std::cout << "Available commands:\n";
-    for (const auto& cmd : table) {
+    for (const auto& cmd : table)
+    {
         std::string name_str(cmd.name);
         std::cout << "  " << name_str;
-        if (name_str.size() < 16) {
+        if (name_str.size() < 16)
+        {
             std::cout << std::string(16 - name_str.size(), ' ');
         }
         std::cout << cmd.help << "\n";
@@ -183,46 +204,55 @@ inline void cmd_builtin_help(int, const char*[]) {
 }
 
 // clear —— 清屏
-inline void cmd_builtin_clear(int, const char*[]) {
+inline void cmd_builtin_clear(int, const char*[])
+{
     linenoiseClearScreen();
 }
 
 // list —— 列出所有已注册的初始化模块
-inline void cmd_builtin_list(int, const char*[]) {
+inline void cmd_builtin_list(int, const char*[])
+{
     auto& table = get_init_table();
     std::cout << "Registered modules (" << table.size() << "):\n";
-    for (const auto& entry : table) {
+    for (const auto& entry : table)
+    {
         std::cout << "  [" << entry.priority << "] " << entry.name << "\n";
     }
 }
 
 // version —— 显示框架版本信息
-inline void cmd_builtin_version(int, const char*[]) {
+inline void cmd_builtin_version(int, const char*[])
+{
     std::cout << "initcall framework v" INITCALL_VERSION
                  "  by " INITCALL_AUTHOR
                  "  (" INITCALL_DATE ")\n";
 }
 
 // 命令历史记录（linenoise C API 不直接暴露历史，内部维护）
-inline std::vector<std::string>& get_cli_history() {
+inline std::vector<std::string>& get_cli_history()
+{
     static std::vector<std::string> hist;
     return hist;
 }
 
 // history —— 显示历史命令
-inline void cmd_builtin_history(int, const char*[]) {
+inline void cmd_builtin_history(int, const char*[])
+{
     auto& hist = get_cli_history();
-    if (hist.empty()) {
+    if (hist.empty())
+    {
         std::cout << "(no history)\n";
         return;
     }
-    for (size_t i = 0; i < hist.size(); ++i) {
+    for (size_t i = 0; i < hist.size(); ++i)
+    {
         std::cout << "  " << i + 1 << "  " << hist[i] << "\n";
     }
 }
 
 // 确保内置命令只注册一次
-inline std::vector<cmd_entry>& get_cmd_table_with_builtins() {
+inline std::vector<CmdEntry>& get_cmd_table_with_builtins()
+{
     auto& table = get_cmd_table();
     static bool builtins_registered = []() {
         auto& t = get_cmd_table();
@@ -240,24 +270,34 @@ inline std::vector<cmd_entry>& get_cmd_table_with_builtins() {
 }
 
 // 在命令表中查找并执行一条命令
-inline bool cli_execute(const std::string& line) {
-    if (line.empty()) return false;
+inline bool cli_execute(const std::string& line)
+{
+    if (line.empty())
+    {
+        return false;
+    }
 
     // cli_split 返回独立 string，生命周期与 tokens 绑定，无悬挂风险
     auto tokens = cli_split(line);
-    if (tokens.empty()) return false;
+    if (tokens.empty())
+    {
+        return false;
+    }
 
     std::vector<const char*> argv;
     argv.reserve(tokens.size());
-    for (const auto& s : tokens) {
+    for (const auto& s : tokens)
+    {
         argv.push_back(s.c_str());
     }
 
     const char* cmd_name = argv[0];
     auto& table = get_cmd_table_with_builtins();
 
-    for (const auto& cmd : table) {
-        if (std::strcmp(cmd.name, cmd_name) == 0) {
+    for (const auto& cmd : table)
+    {
+        if (std::strcmp(cmd.name, cmd_name) == 0)
+        {
             cmd.handler(static_cast<int>(argv.size()), argv.data());
             return true;
         }
@@ -274,11 +314,14 @@ inline bool cli_execute(const std::string& line) {
 
 // Tab 补全回调：遍历命令表，对前缀匹配的命令名加入补全列表
 inline void cli_completion_callback(const char* input,
-                                    linenoiseCompletions* lc) {
+                                    linenoiseCompletions* lc)
+{
     auto& table = get_cmd_table_with_builtins();
     size_t len = std::strlen(input);
-    for (const auto& cmd : table) {
-        if (std::strncmp(cmd.name, input, len) == 0) {
+    for (const auto& cmd : table)
+    {
+        if (std::strncmp(cmd.name, input, len) == 0)
+        {
             linenoiseAddCompletion(lc, cmd.name);
         }
     }
@@ -286,16 +329,19 @@ inline void cli_completion_callback(const char* input,
 
 // 使用 antirez/linenoise 的交互式命令行循环
 // prompt: 提示符字符串，默认为 "msh> "（致敬 RT-Thread msh）
-inline void cli_loop(const char* prompt = "msh> ") {
+inline void cli_loop(const char* prompt = "msh> ")
+{
     // 注册 Tab 补全回调
     linenoiseSetCompletionCallback(cli_completion_callback);
     // 设置历史最大行数
     linenoiseHistorySetMaxLen(100);
 
-    while (true) {
+    while (true)
+    {
         char* raw = linenoise(prompt);
 
-        if (!raw) {
+        if (!raw)
+        {
             // EOF (Ctrl+D) 或错误
             std::cout << "\n";
             break;
@@ -305,10 +351,16 @@ inline void cli_loop(const char* prompt = "msh> ") {
         linenoiseFree(raw);
 
         // 跳过空行
-        if (line.empty()) continue;
+        if (line.empty())
+        {
+            continue;
+        }
 
         // exit / quit 退出
-        if (line == "exit" || line == "quit") break;
+        if (line == "exit" || line == "quit")
+        {
+            break;
+        }
 
         // 添加到历史记录
         linenoiseHistoryAdd(line.c_str());
@@ -328,7 +380,7 @@ inline void cli_loop(const char* prompt = "msh> ") {
 // 模块注册宏（类似 RT-Thread INIT_XXX_EXPORT）
 // --------------------------------------------------------------------------
 // 用法：在初始化函数定义的下方，写一行：
-//   INIT_EXPORT(函数名, "模块名", initcall::init_level::COMPONENT)
+//   INIT_EXPORT(函数名, "模块名", initcall::InitLevel::kComponent)
 //
 // 展开后为一个 static bool 变量，通过立即执行的 lambda 在程序启动时
 // 将模块信息 push 进注册表。
@@ -356,13 +408,13 @@ inline void cli_loop(const char* prompt = "msh> ") {
 // RT-Thread 风格快捷宏 —— 免去手写优先级和模块名
 // --------------------------------------------------------------------------
 // 用法：INIT_BOARD_EXPORT(func)  等价于
-//       INIT_EXPORT(func, "func", initcall::init_level::BOARD)
+//       INIT_EXPORT(func, "func", initcall::InitLevel::kBoard)
 // 模块名自动使用函数名（通过宏字符串化 #func）
-#define INIT_BOARD_EXPORT(func)      INIT_EXPORT(func, #func, initcall::init_level::BOARD)
-#define INIT_PREV_EXPORT(func)       INIT_EXPORT(func, #func, initcall::init_level::PREV)
-#define INIT_DEVICE_EXPORT(func)     INIT_EXPORT(func, #func, initcall::init_level::DEVICE)
-#define INIT_COMPONENT_EXPORT(func)  INIT_EXPORT(func, #func, initcall::init_level::COMPONENT)
-#define INIT_ENV_EXPORT(func)        INIT_EXPORT(func, #func, initcall::init_level::ENV)
-#define INIT_APP_EXPORT(func)        INIT_EXPORT(func, #func, initcall::init_level::APP)
+#define INIT_BOARD_EXPORT(func)      INIT_EXPORT(func, #func, initcall::InitLevel::kBoard)
+#define INIT_PREV_EXPORT(func)       INIT_EXPORT(func, #func, initcall::InitLevel::kPrev)
+#define INIT_DEVICE_EXPORT(func)     INIT_EXPORT(func, #func, initcall::InitLevel::kDevice)
+#define INIT_COMPONENT_EXPORT(func)  INIT_EXPORT(func, #func, initcall::InitLevel::kComponent)
+#define INIT_ENV_EXPORT(func)        INIT_EXPORT(func, #func, initcall::InitLevel::kEnv)
+#define INIT_APP_EXPORT(func)        INIT_EXPORT(func, #func, initcall::InitLevel::kApp)
 
-#endif // INITCALL_HPP
+#endif // __INITCALL_HPP__
