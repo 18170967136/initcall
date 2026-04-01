@@ -13,7 +13,7 @@
 //   #include "initcall.hpp"
 //
 //   void my_module_init() { /* 初始化逻辑 */ }
-//   INIT_EXPORT(my_module_init, "My Module", INIT_LEVEL_COMPONENT)
+//   INIT_EXPORT(my_module_init, "My Module", initcall::init_level::COMPONENT)
 //
 //   // 也可以用 RT-Thread 风格的快捷宏（自动以函数名作为模块名）：
 //   INIT_COMPONENT_EXPORT(my_module_init)
@@ -51,16 +51,15 @@
 #ifndef INITCALL_HPP
 #define INITCALL_HPP
 
-#define INITCALL_VERSION  "1.0.0"
+#define INITCALL_VERSION  "1.0.1"
 #define INITCALL_AUTHOR   "zeal"
-#define INITCALL_DATE     "2026-03-26"
+#define INITCALL_DATE     "2026-04-01"
 
 #include <vector>
 #include <string>
 #include <iostream>
 #include <algorithm>
 #include <cstring>
-#include <cstdio>
 
 // antirez/linenoise（行编辑库：Tab 补全 / 历史 / 方向键）
 extern "C" {
@@ -77,13 +76,13 @@ namespace initcall {
 // 初始化优先级等级（数值越小越先执行）
 // 等级之间预留间隔，用户可用中间值实现更细粒度控制。
 // --------------------------------------------------------------------------
-enum init_level : int {
-    INIT_LEVEL_BOARD     = 100,   // 板级/硬件初始化（最先执行）
-    INIT_LEVEL_PREV      = 200,   // 预初始化（早期依赖项）
-    INIT_LEVEL_DEVICE    = 300,   // 设备/驱动初始化
-    INIT_LEVEL_COMPONENT = 400,   // 组件初始化
-    INIT_LEVEL_ENV       = 500,   // 环境/配置初始化
-    INIT_LEVEL_APP       = 600,   // 应用级初始化（最后执行）
+enum class init_level : int {
+    BOARD     = 100,   // 板级/硬件初始化（最先执行）
+    PREV      = 200,   // 预初始化（早期依赖项）
+    DEVICE    = 300,   // 设备/驱动初始化
+    COMPONENT = 400,   // 组件初始化
+    ENV       = 500,   // 环境/配置初始化
+    APP       = 600,   // 应用级初始化（最后执行）
 };
 
 // 初始化函数指针类型
@@ -93,7 +92,7 @@ using init_func_t = void(*)();
 struct init_entry {
     init_func_t func;      // 指向模块初始化函数的指针
     const char* name;      // 模块名称（用于日志输出）
-    int priority;          // 优先级，数值越小越先执行
+    int         priority;  // 优先级，数值越小越先执行
 };
 
 // 全局注册表（首次使用时构造，避免静态初始化顺序问题）
@@ -135,8 +134,8 @@ using cmd_handler_t = void(*)(int argc, const char* argv[]);
 // 命令描述符
 struct cmd_entry {
     cmd_handler_t handler; // 命令处理函数
-    const char* name;      // 命令名（用户在终端输入的字符串）
-    const char* help;      // 帮助信息
+    const char*   name;    // 命令名（用户在终端输入的字符串）
+    const char*   help;    // 帮助信息
 };
 
 // 命令注册表（首次使用时构造）
@@ -145,28 +144,37 @@ inline std::vector<cmd_entry>& get_cmd_table() {
     return table;
 }
 
-// 将输入字符串按空格拆分为 argc / argv
-inline std::vector<const char*> cli_split(char* line) {
-    std::vector<const char*> tokens;
-    char* tok = std::strtok(line, " \t\r\n");
-    while (tok) {
-        tokens.push_back(tok);
-        tok = std::strtok(nullptr, " \t\r\n");
+// 将输入字符串按空白拆分，返回各 token 的独立副本（所有权归调用方，无悬挂指针风险）
+inline std::vector<std::string> cli_split(const std::string& line) {
+    std::vector<std::string> tokens;
+    const std::string delim(" \t\r\n");
+    std::string::size_type pos = 0;
+
+    while (pos < line.size()) {
+        // 跳过分隔符
+        pos = line.find_first_not_of(delim, pos);
+        if (pos == std::string::npos) break;
+        // 找到下一个分隔符
+        auto end = line.find_first_of(delim, pos);
+        if (end == std::string::npos) end = line.size();
+        tokens.push_back(line.substr(pos, end - pos));
+        pos = end;
     }
     return tokens;
 }
 
 // ======================== 内置命令 ========================
 
-// help —— 显示所有可用命令
+// 前置声明（cmd_builtin_help 需要访问含内置命令的完整表）
+inline std::vector<cmd_entry>& get_cmd_table_with_builtins();
+
+// help —— 显示所有可用命令（含内置命令）
 inline void cmd_builtin_help(int, const char*[]) {
-    // 前置声明：get_cmd_table_with_builtins 在下方定义
-    auto& table = get_cmd_table();
+    auto& table = get_cmd_table_with_builtins();
     std::cout << "Available commands:\n";
     for (const auto& cmd : table) {
-        std::cout << "  ";
         std::string name_str(cmd.name);
-        std::cout << name_str;
+        std::cout << "  " << name_str;
         if (name_str.size() < 16) {
             std::cout << std::string(16 - name_str.size(), ' ');
         }
@@ -235,18 +243,22 @@ inline std::vector<cmd_entry>& get_cmd_table_with_builtins() {
 inline bool cli_execute(const std::string& line) {
     if (line.empty()) return false;
 
-    std::vector<char> buf(line.begin(), line.end());
-    buf.push_back('\0');
-
-    auto tokens = cli_split(buf.data());
+    // cli_split 返回独立 string，生命周期与 tokens 绑定，无悬挂风险
+    auto tokens = cli_split(line);
     if (tokens.empty()) return false;
 
-    const char* cmd_name = tokens[0];
+    std::vector<const char*> argv;
+    argv.reserve(tokens.size());
+    for (const auto& s : tokens) {
+        argv.push_back(s.c_str());
+    }
+
+    const char* cmd_name = argv[0];
     auto& table = get_cmd_table_with_builtins();
 
     for (const auto& cmd : table) {
         if (std::strcmp(cmd.name, cmd_name) == 0) {
-            cmd.handler(static_cast<int>(tokens.size()), tokens.data());
+            cmd.handler(static_cast<int>(argv.size()), argv.data());
             return true;
         }
     }
@@ -316,13 +328,14 @@ inline void cli_loop(const char* prompt = "msh> ") {
 // 模块注册宏（类似 RT-Thread INIT_XXX_EXPORT）
 // --------------------------------------------------------------------------
 // 用法：在初始化函数定义的下方，写一行：
-//   INIT_EXPORT(函数名, "模块名", 优先级)
+//   INIT_EXPORT(函数名, "模块名", initcall::init_level::COMPONENT)
 //
 // 展开后为一个 static bool 变量，通过立即执行的 lambda 在程序启动时
 // 将模块信息 push 进注册表。
 #define INIT_EXPORT(func, name, prio) \
-    static bool __initcall_##func = []() { \
-        initcall::get_init_table().push_back({func, name, prio}); \
+    static bool initcall_reg_##func = []() { \
+        initcall::get_init_table().push_back( \
+            {func, name, static_cast<int>(prio)}); \
         return true; \
     }();
 
@@ -331,23 +344,25 @@ inline void cli_loop(const char* prompt = "msh> ") {
 // --------------------------------------------------------------------------
 // 用法：在命令处理函数定义的下方，写一行：
 //   MSH_CMD_EXPORT_ALIAS(函数名, "命令名", "帮助信息")  ← 命令名自定义
-//   MSH_CMD_EXPORT(函数名, "帮助信息")          ← 命令名 = 函数名
+//   MSH_CMD_EXPORT(函数名, "帮助信息")                  ← 命令名 = 函数名
 #define MSH_CMD_EXPORT_ALIAS(func, name, help) \
-    static bool __msh_cmd_##func = []() { \
+    static bool msh_cmd_reg_##func = []() { \
         initcall::get_cmd_table().push_back({func, name, help}); \
         return true; \
     }();
 #define MSH_CMD_EXPORT(func, help)   MSH_CMD_EXPORT_ALIAS(func, #func, help)
+
 // --------------------------------------------------------------------------
 // RT-Thread 风格快捷宏 —— 免去手写优先级和模块名
 // --------------------------------------------------------------------------
-// 用法：INIT_BOARD_EXPORT(func)  等价于  INIT_EXPORT(func, "func", INIT_LEVEL_BOARD)
+// 用法：INIT_BOARD_EXPORT(func)  等价于
+//       INIT_EXPORT(func, "func", initcall::init_level::BOARD)
 // 模块名自动使用函数名（通过宏字符串化 #func）
-#define INIT_BOARD_EXPORT(func)      INIT_EXPORT(func, #func, initcall::INIT_LEVEL_BOARD)
-#define INIT_PREV_EXPORT(func)       INIT_EXPORT(func, #func, initcall::INIT_LEVEL_PREV)
-#define INIT_DEVICE_EXPORT(func)     INIT_EXPORT(func, #func, initcall::INIT_LEVEL_DEVICE)
-#define INIT_COMPONENT_EXPORT(func)  INIT_EXPORT(func, #func, initcall::INIT_LEVEL_COMPONENT)
-#define INIT_ENV_EXPORT(func)        INIT_EXPORT(func, #func, initcall::INIT_LEVEL_ENV)
-#define INIT_APP_EXPORT(func)        INIT_EXPORT(func, #func, initcall::INIT_LEVEL_APP)
+#define INIT_BOARD_EXPORT(func)      INIT_EXPORT(func, #func, initcall::init_level::BOARD)
+#define INIT_PREV_EXPORT(func)       INIT_EXPORT(func, #func, initcall::init_level::PREV)
+#define INIT_DEVICE_EXPORT(func)     INIT_EXPORT(func, #func, initcall::init_level::DEVICE)
+#define INIT_COMPONENT_EXPORT(func)  INIT_EXPORT(func, #func, initcall::init_level::COMPONENT)
+#define INIT_ENV_EXPORT(func)        INIT_EXPORT(func, #func, initcall::init_level::ENV)
+#define INIT_APP_EXPORT(func)        INIT_EXPORT(func, #func, initcall::init_level::APP)
 
 #endif // INITCALL_HPP
